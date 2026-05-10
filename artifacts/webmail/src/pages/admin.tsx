@@ -693,7 +693,8 @@ export function AdminPage() {
 
       {/* ── WEBHOOK TAB ── */}
       {activeTab === "webhook" && (() => {
-        const webhookUrl = `${apiBase}/api/webhook/email`;
+        const origin = apiBase || window.location.origin;
+        const webhookUrl = `${origin}/api/webhook/email`;
         return (
           <div className="space-y-4">
             {/* Endpoint URL card */}
@@ -719,7 +720,7 @@ export function AdminPage() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Supports: <span className="font-medium text-foreground">Mailgun · Postmark · SendGrid · CloudMailin · Generic JSON</span>
+                Supports: <span className="font-medium text-foreground">Hanami.run / Mailwip · Mailgun · Postmark · SendGrid · CloudMailin · Generic JSON</span>
               </p>
             </div>
 
