@@ -1,0 +1,361 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: email
+    description: Email operations
+  - name: domains
+    description: Domain management
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /emails:
+    get:
+      operationId: listEmails
+      tags: [email]
+      summary: List emails for an address
+      description: Fetches emails for a given email address using a mail service
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The email address to fetch emails for
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          description: List of emails
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailList"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /emails/{id}:
+    get:
+      operationId: getEmail
+      tags: [email]
+      summary: Get email details
+      description: Fetches the full content of an email by its ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Email details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailDetail"
+        "404":
+          description: Email not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /domains:
+    get:
+      operationId: listDomains
+      tags: [domains]
+      summary: List available domains
+      description: Returns the list of configured domains available for use
+      responses:
+        "200":
+          description: List of domains
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomainList"
+    post:
+      operationId: addDomain
+      tags: [domains]
+      summary: Add a domain
+      description: Add a custom domain for receiving email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddDomainBody"
+      responses:
+        "201":
+          description: Domain added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+        "400":
+          description: Invalid domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /domains/{id}:
+    patch:
+      operationId: updateDomain
+      tags: [domains]
+      summary: Update a domain
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDomainBody"
+      responses:
+        "200":
+          description: Domain updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Domain"
+        "404":
+          description: Domain not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteDomain
+      tags: [domains]
+      summary: Remove a domain
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Domain removed
+        "404":
+          description: Domain not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /emails/stats:
+    get:
+      operationId: getEmailStats
+      tags: [email]
+      summary: Get email statistics
+      description: Returns counts of emails checked and received
+      parameters:
+        - name: address
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stats for the address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailStats"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    EmailSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        subject:
+          type: string
+        date:
+          type: string
+        read:
+          type: boolean
+        preview:
+          type: string
+      required:
+        - id
+        - from
+        - subject
+        - date
+        - read
+        - preview
+
+    EmailList:
+      type: object
+      properties:
+        emails:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailSummary"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - emails
+        - total
+        - page
+        - totalPages
+
+    EmailDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        subject:
+          type: string
+        date:
+          type: string
+        htmlBody:
+          type: string
+        textBody:
+          type: string
+        read:
+          type: boolean
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              size:
+                type: integer
+              contentType:
+                type: string
+            required:
+              - filename
+              - size
+              - contentType
+      required:
+        - id
+        - from
+        - to
+        - subject
+        - date
+        - read
+
+    Domain:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+        active:
+          type: boolean
+        premiumOnly:
+          type: boolean
+      required:
+        - id
+        - name
+        - createdAt
+        - active
+        - premiumOnly
+
+    UpdateDomainBody:
+      type: object
+      properties:
+        premiumOnly:
+          type: boolean
+
+    DomainList:
+      type: object
+      properties:
+        domains:
+          type: array
+          items:
+            $ref: "#/components/schemas/Domain"
+      required:
+        - domains
+
+    AddDomainBody:
+      type: object
+      properties:
+        name:
+          type: string
+      required:
+        - name
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    EmailStats:
+      type: object
+      properties:
+        totalEmails:
+          type: integer
+        unreadEmails:
+          type: integer
+        lastChecked:
+          type: string
+      required:
+        - totalEmails
+        - unreadEmails
