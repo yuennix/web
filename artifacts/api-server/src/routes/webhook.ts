@@ -151,11 +151,35 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
   return null;
 }
 
+// ─── GET /api/webhook/info (admin only) ─────────────────────────────────────
+router.get("/webhook/info", (req, res): void => {
+  const adminPwd = process.env.ADMIN_PASSWORD || "yuenaquino17";
+  const provided = req.headers["x-admin-password"] as string | undefined;
+  if (!provided || provided !== adminPwd) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const secret = process.env.WEBHOOK_SECRET ?? null;
+  res.json({ hasSecret: !!secret, secret });
+});
+
 // ─── POST /api/webhook/email ────────────────────────────────────────────────
 router.post(
   "/webhook/email",
   upload.any(),
   async (req, res): Promise<void> => {
+    // Validate webhook secret if configured
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const provided =
+        (req.headers["x-webhook-secret"] as string | undefined) ??
+        (req.query.secret as string | undefined);
+      if (!provided || provided !== webhookSecret) {
+        res.status(401).json({ error: "Invalid webhook secret" });
+        return;
+      }
+    }
+
     try {
       logger.info({
         contentType: req.headers["content-type"],

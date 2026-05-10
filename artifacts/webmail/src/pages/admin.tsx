@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Shield, Crown, User, RefreshCw, Users, Star, UserCheck, Lock, Eye, EyeOff, Trash2, UserPlus, ChevronDown, ChevronUp, Globe, Unlock } from "lucide-react";
+import { Shield, Crown, User, RefreshCw, Users, Star, UserCheck, Lock, Eye, EyeOff, Trash2, UserPlus, ChevronDown, ChevronUp, Globe, Unlock, Webhook, Copy, Check, ExternalLink, KeyRound, AlertCircle } from "lucide-react";
 import { DomainsPage } from "@/pages/domains";
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string) || "";
@@ -65,7 +65,15 @@ export function AdminPage() {
   const [allDomains, setAllDomains] = useState<{ id: number; name: string }[]>([]);
   const [togglingDomain, setTogglingDomain] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState("");
-  const [activeTab, setActiveTab] = useState<"users" | "domains">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "domains" | "webhook">("users");
+
+  // Webhook tab state
+  const [webhookSecret, setWebhookSecret] = useState<string | null>(null);
+  const [webhookHasSecret, setWebhookHasSecret] = useState(false);
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookCopiedUrl, setWebhookCopiedUrl] = useState(false);
+  const [webhookCopiedSecret, setWebhookCopiedSecret] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
 
   const storedPassword = (): string => sessionStorage.getItem(SESSION_KEY) ?? "";
 
@@ -303,6 +311,32 @@ export function AdminPage() {
     }
   };
 
+  const loadWebhookInfo = async () => {
+    setWebhookLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/webhook/info`, {
+        headers: { "x-admin-password": storedPassword() },
+      });
+      const data = await res.json();
+      setWebhookHasSecret(data.hasSecret ?? false);
+      setWebhookSecret(data.secret ?? null);
+    } finally {
+      setWebhookLoading(false);
+    }
+  };
+
+  const copyWebhookUrl = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setWebhookCopiedUrl(true);
+    setTimeout(() => setWebhookCopiedUrl(false), 2000);
+  };
+
+  const copySecret = (s: string) => {
+    navigator.clipboard.writeText(s);
+    setWebhookCopiedSecret(true);
+    setTimeout(() => setWebhookCopiedSecret(false), 2000);
+  };
+
   const handleSignOut = () => {
     sessionStorage.removeItem(SESSION_KEY);
     setAuthenticated(false);
@@ -414,6 +448,17 @@ export function AdminPage() {
         >
           <Globe className="w-4 h-4" />
           Domains
+        </button>
+        <button
+          onClick={() => { setActiveTab("webhook"); if (!webhookSecret && !webhookLoading) loadWebhookInfo(); }}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors border-b-2 -mb-px ${
+            activeTab === "webhook"
+              ? "border-violet-600 text-violet-600 dark:text-violet-400"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Webhook className="w-4 h-4" />
+          Webhook
         </button>
         {/* Add Users — only on Users tab */}
         {activeTab === "users" && (
@@ -645,6 +690,118 @@ export function AdminPage() {
       {activeTab === "domains" && (
         <DomainsPage />
       )}
+
+      {/* ── WEBHOOK TAB ── */}
+      {activeTab === "webhook" && (() => {
+        const webhookUrl = `${apiBase}/api/webhook/email`;
+        return (
+          <div className="space-y-4">
+            {/* Endpoint URL card */}
+            <div className="rounded-xl border border-border bg-card shadow-sm p-5 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Webhook className="w-4 h-4 text-violet-600" />
+                <p className="text-sm font-semibold text-foreground">Webhook Endpoint</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure your email provider to POST incoming emails to this URL.
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono bg-muted px-3 py-2.5 rounded-lg border border-border truncate text-foreground">
+                  {webhookUrl}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => copyWebhookUrl(webhookUrl)}
+                >
+                  {webhookCopiedUrl ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Supports: <span className="font-medium text-foreground">Mailgun · Postmark · SendGrid · CloudMailin · Generic JSON</span>
+              </p>
+            </div>
+
+            {/* Webhook secret card */}
+            <div className="rounded-xl border border-border bg-card shadow-sm p-5 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <KeyRound className="w-4 h-4 text-violet-600" />
+                <p className="text-sm font-semibold text-foreground">Webhook Secret</p>
+              </div>
+
+              {webhookLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="w-4 h-4 animate-spin" /> Loading…
+                </div>
+              ) : webhookHasSecret && webhookSecret ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Send this secret in the <code className="bg-muted px-1 rounded">X-Webhook-Secret</code> header (or <code className="bg-muted px-1 rounded">?secret=</code> query param) with every webhook request.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs font-mono bg-muted px-3 py-2.5 rounded-lg border border-border truncate text-foreground">
+                      {showSecret ? webhookSecret : "•".repeat(Math.min(webhookSecret.length, 32))}
+                    </code>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => setShowSecret((v) => !v)}
+                      title={showSecret ? "Hide secret" : "Reveal secret"}
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => copySecret(webhookSecret)}
+                    >
+                      {webhookCopiedSecret ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Secret protection is active — unauthorized requests will be rejected.
+                  </p>
+                </>
+              ) : (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">No secret configured — endpoint is open</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Set the <code className="bg-amber-100 dark:bg-amber-900/40 px-1 rounded font-mono">WEBHOOK_SECRET</code> environment variable on the API server to enable secret protection.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs text-muted-foreground"
+                onClick={loadWebhookInfo}
+                disabled={webhookLoading}
+              >
+                <RefreshCw className={`w-3 h-3 mr-1.5 ${webhookLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+
+            {/* All emails info card */}
+            <div className="rounded-xl border border-border bg-card shadow-sm p-5 space-y-2">
+              <div className="flex items-center gap-2 mb-1">
+                <Star className="w-4 h-4 text-violet-600" />
+                <p className="text-sm font-semibold text-foreground">Email Catch-All</p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                All incoming emails are stored without any domain or address filtering. New domains are auto-registered on first delivery. Every email sent to any address at your domain will appear in the recipient's inbox.
+              </p>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
