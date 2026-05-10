@@ -47,21 +47,23 @@ function pick(body: Record<string, unknown>, ...keys: string[]): string {
 
 /**
  * Extract from/to/subject/html/text from any known provider format.
+ * Returns null only when no address fields whatsoever can be found.
  *
  * Providers handled:
- *  - Mailgun  (multipart: from, recipient, subject, body-html, body-plain, stripped-text)
- *  - SendGrid (JSON: from{email}, personalizations[0].to[0].email, subject, content[type=text/html])
+ *  - Hanami.run / Mailwip (multipart: recipient, sender, subject, body-html, body-plain,
+ *                          stripped-text, message-headers JSON array)
+ *  - Mailgun  (same fields as Hanami.run)
  *  - Postmark (JSON: From, To, Subject, HtmlBody, TextBody)
- *  - Cloudmailin (JSON: headers.to, headers.from, headers.subject, html, plain)
- *  - Forwardemail / generic (JSON: from, to, subject, html, text)
- *  - Raw body.email JSON string (Hanami / custom)
+ *  - Cloudmailin (JSON: headers.{to,from,subject}, html, plain)
+ *  - SendGrid (JSON: personalizations[0].to[0].email, from, subject, content[])
+ *  - Generic flat JSON / form (from/to/subject/html/text)
  */
 function extractEmailData(body: Record<string, unknown>, files: Express.Multer.File[]): EmailData | null {
-  // --- Format 1: body.email is a JSON string ---
+  // --- Format 1: body.email is a JSON string (Hanami.run / Mailwip legacy) ---
   if (typeof body.email === "string") {
     try {
       const parsed = JSON.parse(body.email) as Record<string, unknown>;
-      body = parsed;
+      body = { ...body, ...parsed };
     } catch { /* fall through */ }
   }
 
@@ -69,11 +71,24 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
   if (typeof body.payload === "string") {
     try {
       const parsed = JSON.parse(body.payload) as Record<string, unknown>;
-      body = parsed;
+      body = { ...body, ...parsed };
     } catch { /* fall through */ }
   }
 
-  // --- Format 3: Postmark ---
+  // --- Format 3: message-headers is a JSON array (Hanami.run / Mailwip / Mailgun) ---
+  if (typeof body["message-headers"] === "string") {
+    try {
+      const headers = JSON.parse(body["message-headers"] as string) as Array<[string, string]>;
+      const headerMap: Record<string, string> = {};
+      for (const [k, v] of headers) headerMap[k.toLowerCase()] = v;
+      // Only inject header values if not already in body
+      if (!body.recipient && !body.to && headerMap["to"]) body = { ...body, to: headerMap["to"] };
+      if (!body.sender && !body.from && headerMap["from"]) body = { ...body, from: headerMap["from"] };
+      if (!body.subject && headerMap["subject"]) body = { ...body, subject: headerMap["subject"] };
+    } catch { /* fall through */ }
+  }
+
+  // --- Format 4: Postmark ---
   if (typeof body.From === "string" || typeof body.To === "string") {
     return {
       from: pick(body, "From", "from"),
@@ -86,8 +101,8 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
     };
   }
 
-  // --- Format 4: Cloudmailin ---
-  if (typeof body.headers === "object" && body.headers !== null) {
+  // --- Format 5: Cloudmailin ---
+  if (typeof body.headers === "object" && body.headers !== null && !Array.isArray(body.headers)) {
     const h = body.headers as Record<string, unknown>;
     const to = pick(h, "to", "delivered-to", "x-original-to");
     const from = pick(h, "from", "reply-to");
@@ -105,7 +120,7 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
     }
   }
 
-  // --- Format 5: SendGrid inbound parse ---
+  // --- Format 6: SendGrid inbound parse ---
   if (Array.isArray(body.personalizations)) {
     const pers = body.personalizations as Array<{ to?: Array<{ email?: string }> }>;
     const to = pers[0]?.to?.[0]?.email ?? "";
@@ -123,9 +138,10 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
     return { from, to, subject, html, text };
   }
 
-  // --- Format 6: Mailgun multipart / generic flat body ---
-  const from = pick(body, "from", "sender", "From", "Sender");
-  const to = pick(body, "to", "recipient", "To", "Recipient", "delivered-to");
+  // --- Format 7: Hanami.run / Mailwip / Mailgun multipart / generic flat ---
+  // Field priority: recipient > to, sender > from, body-html > html, stripped-text > body-plain > text
+  const from = pick(body, "sender", "from", "Sender", "From", "return-path", "x-original-sender");
+  const to = pick(body, "recipient", "to", "Recipient", "To", "delivered-to", "x-forwarded-to", "x-original-to");
   if (from || to) {
     return {
       from,
@@ -143,7 +159,7 @@ function extractEmailData(body: Record<string, unknown>, files: Express.Multer.F
     };
   }
 
-  // --- Format 7: nested data wrapper ---
+  // --- Format 8: nested data wrapper ---
   if (typeof body.data === "object" && body.data !== null) {
     return extractEmailData(body.data as Record<string, unknown>, files);
   }
@@ -191,9 +207,15 @@ router.post(
       const files = (req.files as Express.Multer.File[]) ?? [];
       const emailData = extractEmailData(req.body as Record<string, unknown>, files);
 
-      if (!emailData) {
-        logger.warn({ body: req.body }, "Could not extract email data from webhook");
-        res.status(400).json({ error: "Could not parse email data" });
+      if (!emailData || !emailData.to.trim()) {
+        // Always return 200 so providers don't retry/mark as failed.
+        // Log the full raw body so we can debug missing formats.
+        logger.warn({
+          body: req.body,
+          bodyRaw: JSON.stringify(req.body).slice(0, 2000),
+          contentType: req.headers["content-type"],
+        }, "Webhook received but could not extract email data — returning 200 to suppress retries");
+        res.status(200).json({ status: "ignored", reason: "Could not parse email fields" });
         return;
       }
 
@@ -202,12 +224,6 @@ router.post(
       const subject = emailData.subject || "(no subject)";
       const htmlBody = emailData.html || null;
       const textBody = emailData.text || null;
-
-      if (!toAddress) {
-        logger.warn("Webhook received with empty to address");
-        res.status(400).json({ error: "Missing to address" });
-        return;
-      }
 
       // Auto-register domain if not known
       const toHost = toAddress.split("@")[1];
