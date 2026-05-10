@@ -695,8 +695,26 @@ export function AdminPage() {
       {activeTab === "webhook" && (() => {
         const origin = apiBase || window.location.origin;
         const webhookUrl = `${origin}/api/webhook/email`;
+        const isDevUrl = origin.includes("replit.dev") || origin.includes("localhost") || origin.includes("127.0.0.1") || origin.includes("repl.co");
         return (
           <div className="space-y-4">
+
+            {/* ⚠️ Dev URL warning — shown when using non-deployed URL */}
+            {isDevUrl && (
+              <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                <div className="space-y-1.5">
+                  <p className="text-sm font-bold text-red-700 dark:text-red-300">This is a dev preview URL — Mailwip/Hanami.run cannot reach it</p>
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    Dev preview URLs require a Replit login session. External services (Mailwip, Mailgun, etc.) get <code className="bg-red-100 dark:bg-red-900/40 px-1 rounded font-mono">Unauthorized</code> when they try to POST here.
+                  </p>
+                  <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+                    Fix: Deploy the app → use your <code className="font-mono bg-red-100 dark:bg-red-900/40 px-1 rounded">.replit.app</code> URL in Mailwip instead.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Endpoint URL card */}
             <div className="rounded-xl border border-border bg-card shadow-sm p-5 space-y-3">
               <div className="flex items-center gap-2 mb-1">
@@ -704,10 +722,10 @@ export function AdminPage() {
                 <p className="text-sm font-semibold text-foreground">Webhook Endpoint</p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Configure your email provider to POST incoming emails to this URL.
+                Paste this into your email provider's webhook settings. <span className="font-medium text-foreground">Must be a deployed URL</span> — not a dev preview.
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs font-mono bg-muted px-3 py-2.5 rounded-lg border border-border truncate text-foreground">
+                <code className={`flex-1 text-xs font-mono px-3 py-2.5 rounded-lg border truncate ${isDevUrl ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400" : "bg-muted border-border text-foreground"}`}>
                   {webhookUrl}
                 </code>
                 <Button
@@ -719,6 +737,15 @@ export function AdminPage() {
                   {webhookCopiedUrl ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                 </Button>
               </div>
+              {isDevUrl ? (
+                <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  Deploy this app first, then come back here to get the correct public URL.
+                </p>
+              ) : (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                  <Check className="w-3 h-3" /> This is a public URL — safe to paste into Mailwip / Hanami.run.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Supports: <span className="font-medium text-foreground">Hanami.run / Mailwip · Mailgun · Postmark · SendGrid · CloudMailin · Generic JSON</span>
               </p>
