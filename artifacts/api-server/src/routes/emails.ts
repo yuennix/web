@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, desc, count, and } from "drizzle-orm";
 import { db, emailsTable } from "@workspace/db";
 import { promises as dns } from "dns";
 import {
@@ -30,7 +30,7 @@ router.get("/emails/stats", async (req, res): Promise<void> => {
   const [unreadResult] = await db
     .select({ count: count() })
     .from(emailsTable)
-    .where(eq(emailsTable.toAddress, address));
+    .where(and(eq(emailsTable.toAddress, address), eq(emailsTable.read, false)));
 
   const [lastEmail] = await db
     .select({ receivedAt: emailsTable.receivedAt })
